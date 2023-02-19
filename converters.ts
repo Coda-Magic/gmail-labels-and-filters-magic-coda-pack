@@ -9,6 +9,10 @@ export async function toLabel(label: any) {
     labelListVisibility: label.labelListVisibility,
     type: label.type,
   };
+  if (utilities.hasOwnProperty(label, "color")) {
+    result.textColor = label.color.textColor;
+    result.backgroundColor = label.color.backgroundColor;
+  }
   return result;
 }
 

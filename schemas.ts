@@ -24,6 +24,8 @@ export const LabelSchema = coda.makeObjectSchema({
     type: { type: coda.ValueType.String },
     labelListVisibility: { type: coda.ValueType.String },
     messageListVisibility: { type: coda.ValueType.String },
+    textColor: { type: coda.ValueType.String },
+    backgroundColor: { type: coda.ValueType.String },
   },
 });
 
