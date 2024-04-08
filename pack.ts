@@ -6,6 +6,15 @@ import { addFiltersTable } from "./tables/filter_tables";
 import { Logger } from "./logging";
 import { addLabelsTable } from "./tables/label_tables";
 import { addMessagesTable } from "./tables/message_tables";
+import {
+  addAddLabelsToMessageFormula,
+  addCreateLabelFormula,
+  addDeleteLabelFormula,
+} from "./formulas/labels_formulas";
+import {
+  addCreateFilterFormula,
+  addDeleteFilterFormula,
+} from "./formulas/filter_formulas";
 
 export const pack = coda.newPack();
 
@@ -27,3 +36,9 @@ const logger = new Logger("Startup");
 addFiltersTable(pack, logger);
 addLabelsTable(pack, logger);
 addMessagesTable(pack, logger);
+
+addAddLabelsToMessageFormula(pack, logger);
+addCreateFilterFormula(pack, logger);
+addCreateLabelFormula(pack, logger);
+addDeleteFilterFormula(pack, logger);
+addDeleteLabelFormula(pack, logger);
