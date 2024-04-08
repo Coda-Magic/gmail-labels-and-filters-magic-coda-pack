@@ -1,0 +1,195 @@
+name: Release Coda Pack
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+jobs:
+  if_merged:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Set up environment variables
+        run: |
+          jq -n --arg apiKey "${{ secrets.CODA_API_KEY }}" '{apiKey: $apiKey}' > .coda.json
+
+      - name: Set private pack ID
+        run: |
+          jq -n --arg packId "${{ secrets.PRIVATE_PACK_ID }}" '{packId: $packId}' > .coda-pack.json
+
+      - name: Set private pack version
+        id: set_private_pack_version
+        run: |
+          private_release_version=$(date +%Y%m.${{ github.run_number }})
+          echo "PRIVATE_VERSION=$private_release_version" >> $GITHUB_OUTPUT
+
+      - name: Set private version in the pack
+        uses: jacobtomlinson/gha-find-replace@v3
+        with:
+          find: "pack.setVersion.*;"
+          replace: 'pack.setVersion("${{ steps.set_private_pack_version.outputs.PRIVATE_VERSION }}");'
+          include: "**pack.ts"
+          regex: true
+
+      - name: Upload private pack
+        id: upload_private_pack
+        run: |
+          output=$(npx coda upload pack.ts)
+          version=$(echo "$output" | grep "Generated one for you: version is" | awk '{print $NF}')
+          echo "PRIVATE_VERSION_TAG=${{ secrets.PRIVATE_PACK_ID }}_v$version" >> $GITHUB_OUTPUT
+          echo "PRIVATE_VERSION=$version" >> $GITHUB_OUTPUT
+
+      - name: Add private pack admins
+        id: add_private_pack_admins
+        run: |
+          emails="${{ vars.PACK_ADMINS }}"
+
+          # Access type for the permissions (e.g., read, write, edit)
+          accessType="edit"
+
+          # Whether to suppress the email notification to the users
+          suppressEmail="false"
+
+          # Loop through each email and run the curl command
+          while IFS= read -r email; do
+          email=$(echo "$email" | tr -d '\n' | tr -d '\r')
+
+          # Construct the JSON payload
+          json_payload=$(jq -n --arg email "$email" --arg accessType "$accessType" --argjson suppressEmail $suppressEmail '{
+            access: $accessType,
+            principal: {
+              type: "user",
+              email: $email
+            },
+            suppressEmail: $suppressEmail
+          }')
+
+          # Make the CURL request
+          curl -X POST "https://coda.io/apis/v1/packs/${{ secrets.PRIVATE_PACK_ID }}/permissions" \
+          -H "Authorization: Bearer ${{ secrets.CODA_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d "$json_payload"
+          done <<< "$emails"
+
+      - name: Release private pack
+        run: |
+          RELEASE_NOTES=$(awk '
+          /VERSION/ {
+              if (encountered == 1) {
+                  exit
+              } else {
+                  encountered = 1
+                  next
+              }
+          }
+          /^=+$/ { next } # Skip lines that only have equal signs
+          encountered == 1 && !/VERSION/ { print }
+          ' CHANGELOG.txt)
+          npx coda release pack.ts ${{ steps.upload_private_pack.outputs.PRIVATE_VERSION }} --notes "$RELEASE_NOTES"
+
+      - name: Set public pack ID
+        run: |
+          jq -n --arg packId "${{ secrets.PUBLIC_PACK_ID}}" '{packId: $packId}' > .coda-pack.json
+
+      - name: Set public pack version
+        id: set_public_pack_version
+        run: |
+          public_release_version=$(date +%Y%m.${{ github.run_number }})
+          echo "PUBLIC_VERSION=$public_release_version" >> $GITHUB_OUTPUT
+
+      - name: Set public version in the pack
+        uses: jacobtomlinson/gha-find-replace@v3
+        with:
+          find: "pack.setVersion.*;"
+          replace: 'pack.setVersion("${{ steps.set_public_pack_version.outputs.PUBLIC_VERSION }}");'
+          include: "**pack.ts"
+          regex: true
+
+      - name: Upload public
+        id: upload_public_pack
+        run: |
+          output=$(npx coda upload pack.ts)
+          version=$(echo "$output" | grep "Generated one for you: version is" | awk '{print $NF}')
+          echo "PUBLIC_VERSION_TAG=${{ secrets.PUBLIC_PACK_ID }}_v$version" >> $GITHUB_OUTPUT
+          echo "PUBLIC_VERSION=$version" >> $GITHUB_OUTPUT
+
+      - name: Add public pack admins
+        id: add_public_pack_admins
+        run: |
+          emails="${{ vars.PACK_ADMINS }}"
+
+          # Access type for the permissions (e.g., read, write, edit)
+          accessType="edit"
+
+          # Whether to suppress the email notification to the users
+          suppressEmail="false"
+
+          # Loop through each email and run the curl command
+          while IFS= read -r email; do
+          email=$(echo "$email" | tr -d '\n' | tr -d '\r')
+
+          # Construct the JSON payload
+          json_payload=$(jq -n --arg email "$email" --arg accessType "$accessType" --argjson suppressEmail $suppressEmail '{
+            access: $accessType,
+            principal: {
+              type: "user",
+              email: $email
+            },
+            suppressEmail: $suppressEmail
+          }')
+
+          # Make the CURL request
+          curl -X POST "https://coda.io/apis/v1/packs/${{ secrets.PUBLIC_PACK_ID }}/permissions" \
+          -H "Authorization: Bearer ${{ secrets.CODA_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d "$json_payload"
+          done <<< "$emails"
+
+      - name: Release public pack
+        run: |
+          RELEASE_NOTES=$(awk '
+          /VERSION/ {
+              if (encountered == 1) {
+                  exit
+              } else {
+                  encountered = 1
+                  next
+              }
+          }
+          /^=+$/ { next } # Skip lines that only have equal signs
+          encountered == 1 && !/VERSION/ { print }
+          ' CHANGELOG.txt)
+          npx coda release pack.ts ${{ steps.upload_public_pack.outputs.PUBLIC_VERSION }} --notes "$RELEASE_NOTES"
+
+      - name: Create version tags
+        uses: actions/github-script@v7.0.1
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.upload_public_pack.outputs.PUBLIC_VERSION_TAG }}',
+              sha: context.sha
+            })
+
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.upload_private_pack.outputs.PRIVATE_VERSION_TAG }}',
+              sha: context.sha
+            })

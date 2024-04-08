@@ -1,0 +1,68 @@
+name: Upload Coda Pack
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "!main"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Set up environment variables
+        run: |
+          jq -n --arg apiKey "${{ secrets.CODA_API_KEY }}" '{apiKey: $apiKey}' > .coda.json
+
+      - name: Set private pack ID
+        run: |
+          jq -n --arg packId "${{ secrets.PRIVATE_PACK_ID }}" '{packId: $packId}' > .coda-pack.json
+
+      - name: Upload private pack
+        id: upload_private_pack
+        run: |
+          output=$(npx coda upload pack.ts)
+          echo "$output"
+          version=$(echo "$output" | grep "Generated one for you: version is" | awk '{print $NF}')
+          echo "PACK_UPLOAD_PRIVATE_VERSION=${{ secrets.PRIVATE_PACK_ID }}_v$version" >> $GITHUB_OUTPUT
+
+      - name: Set public pack ID
+        run: |
+          jq -n --arg packId "${{ secrets.PUBLIC_PACK_ID}}" '{packId: $packId}' > .coda-pack.json
+
+      - name: Upload public
+        id: upload_public_pack
+        run: |
+          output=$(npx coda upload pack.ts)
+          echo "$output"
+          version=$(echo "$output" | grep "Generated one for you: version is" | awk '{print $NF}')
+          echo "PACK_UPLOAD_PUBLIC_VERSION=${{ secrets.PUBLIC_PACK_ID }}_v$version" >> $GITHUB_OUTPUT
+
+      - name: Create version tags
+        uses: actions/github-script@v7.0.1
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.upload_public_pack.outputs.PACK_UPLOAD_PUBLIC_VERSION }}',
+              sha: context.sha
+            })
+
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.upload_private_pack.outputs.PACK_UPLOAD_PRIVATE_VERSION }}',
+              sha: context.sha
+            })
