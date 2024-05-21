@@ -21,6 +21,30 @@ jobs:
         with:
           node-version: 20
 
+      - name: Check for public pack ID
+        id: check_for_public
+        shell: bash
+        run: |
+          if [ "$SECRET" == "" ]; then
+            echo "has_public_pack_id=NO" >> $GITHUB_OUTPUT
+          else
+            echo "has_public_pack_id=YES" >> $GITHUB_OUTPUT
+          fi
+        env:
+          SECRET: ${{ secrets.PUBLIC_PACK_ID}}
+
+      - name: Check for private pack ID
+        id: check_for_private
+        shell: bash
+        run: |
+          if [ "$SECRET" == "" ]; then
+            echo "has_private_pack_id=NO" >> $GITHUB_OUTPUT
+          else
+            echo "has_private_pack_id=YES" >> $GITHUB_OUTPUT
+          fi
+        env:
+          SECRET: ${{ secrets.PRIVATE_PACK_ID}}
+
       - name: Install dependencies
         run: npm install
 
@@ -33,12 +57,14 @@ jobs:
           jq -n --arg packId "${{ secrets.PRIVATE_PACK_ID }}" '{packId: $packId}' > .coda-pack.json
 
       - name: Set private pack version
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
         id: set_private_pack_version
         run: |
           private_release_version=$(date +%Y%m.${{ github.run_number }})
           echo "PRIVATE_VERSION=$private_release_version" >> $GITHUB_OUTPUT
 
       - name: Set private version in the pack
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
         uses: jacobtomlinson/gha-find-replace@v3
         with:
           find: "pack.setVersion.*;"
@@ -47,6 +73,7 @@ jobs:
           regex: true
 
       - name: Upload private pack
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
         id: upload_private_pack
         run: |
           output=$(npx coda upload pack.ts)
@@ -55,6 +82,7 @@ jobs:
           echo "PRIVATE_VERSION=$version" >> $GITHUB_OUTPUT
 
       - name: Add private pack admins
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
         id: add_private_pack_admins
         run: |
           emails="${{ vars.PACK_ADMINS }}"
@@ -87,6 +115,7 @@ jobs:
           done <<< "$emails"
 
       - name: Release private pack
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
         run: |
           RELEASE_NOTES=$(awk '
           /VERSION/ {
@@ -103,16 +132,19 @@ jobs:
           npx coda release pack.ts ${{ steps.upload_private_pack.outputs.PRIVATE_VERSION }} --notes "$RELEASE_NOTES"
 
       - name: Set public pack ID
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         run: |
           jq -n --arg packId "${{ secrets.PUBLIC_PACK_ID}}" '{packId: $packId}' > .coda-pack.json
 
       - name: Set public pack version
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         id: set_public_pack_version
         run: |
           public_release_version=$(date +%Y%m.${{ github.run_number }})
           echo "PUBLIC_VERSION=$public_release_version" >> $GITHUB_OUTPUT
 
       - name: Set public version in the pack
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         uses: jacobtomlinson/gha-find-replace@v3
         with:
           find: "pack.setVersion.*;"
@@ -121,6 +153,7 @@ jobs:
           regex: true
 
       - name: Upload public
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         id: upload_public_pack
         run: |
           output=$(npx coda upload pack.ts)
@@ -129,6 +162,7 @@ jobs:
           echo "PUBLIC_VERSION=$version" >> $GITHUB_OUTPUT
 
       - name: Add public pack admins
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         id: add_public_pack_admins
         run: |
           emails="${{ vars.PACK_ADMINS }}"
@@ -176,20 +210,26 @@ jobs:
           ' CHANGELOG.txt)
           npx coda release pack.ts ${{ steps.upload_public_pack.outputs.PUBLIC_VERSION }} --notes "$RELEASE_NOTES"
 
-      - name: Create version tags
+      - name: Create private version tags
         uses: actions/github-script@v7.0.1
+        if: steps.check_for_private.outputs.has_private_pack_id == 'YES'
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ steps.upload_private_pack.outputs.PRIVATE_VERSION_TAG }}',
+              sha: context.sha
+            })
+
+      - name: Create public version tags
+        uses: actions/github-script@v7.0.1
+        if: steps.check_for_private.outputs.has_public_pack_id == 'YES'
         with:
           script: |
             github.rest.git.createRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: 'refs/tags/${{ steps.upload_public_pack.outputs.PUBLIC_VERSION_TAG }}',
-              sha: context.sha
-            })
-
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'refs/tags/${{ steps.upload_private_pack.outputs.PRIVATE_VERSION_TAG }}',
               sha: context.sha
             })
